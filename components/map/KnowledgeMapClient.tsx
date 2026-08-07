@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Network, GitBranch, Calendar, Search, RefreshCw, Sparkles, X } from 'lucide-react'
+import { Network, Calendar, Search, RefreshCw, Sparkles, X } from 'lucide-react'
 import * as d3 from 'd3'
 import clsx from 'clsx'
 import type { Document, MapNode, MapLink } from '@/types'
@@ -16,12 +16,12 @@ const NODE_COLORS: Record<string, string> = {
 }
 
 export default function KnowledgeMapClient() {
-  const [view,    setView]    = useState<MapView>('graph')
-  const [docs,    setDocs]    = useState<Document[]>([])
-  const [query,   setQuery]   = useState('')
-  const [selTags, setSelTags] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [aiText,  setAiText]  = useState('')
+  const [view,      setView]      = useState<MapView>('graph')
+  const [docs,      setDocs]      = useState<Document[]>([])
+  const [query,     setQuery]     = useState('')
+  const [selTags,   setSelTags]   = useState<string[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [aiText,    setAiText]    = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -35,7 +35,6 @@ export default function KnowledgeMapClient() {
     return matchQ && matchT
   })
 
-  // Fetch documents
   useEffect(() => {
     fetch('/api/documents?limit=200')
       .then(r => r.json())
@@ -43,7 +42,6 @@ export default function KnowledgeMapClient() {
       .catch(() => setLoading(false))
   }, [])
 
-  // Build graph data
   const buildGraph = useCallback((): { nodes: MapNode[]; links: MapLink[] } => {
     const nodes: MapNode[] = []
     const links: MapLink[] = []
@@ -58,19 +56,16 @@ export default function KnowledgeMapClient() {
 
     filteredDocs.forEach(doc => {
       addNode(`doc:${doc.id}`, doc.title.slice(0, 40), 'document', 8)
-
       doc.tags.forEach(tag => {
         const tagId = `tag:${tag}`
         addNode(tagId, tag, 'topic', 14)
         links.push({ source: tagId, target: `doc:${doc.id}` })
       })
-
       doc.entities?.people?.slice(0, 5).forEach(p => {
         const pid = `person:${p}`
         addNode(pid, p, 'person', 10)
         links.push({ source: pid, target: `doc:${doc.id}`, strength: 0.5 })
       })
-
       doc.entities?.countries?.slice(0, 3).forEach(c => {
         const cid = `country:${c}`
         addNode(cid, c, 'country', 12)
@@ -81,7 +76,6 @@ export default function KnowledgeMapClient() {
     return { nodes, links }
   }, [filteredDocs])
 
-  // D3 force graph
   useEffect(() => {
     if (view !== 'graph' || !svgRef.current || loading) return
 
@@ -89,15 +83,14 @@ export default function KnowledgeMapClient() {
     if (nodes.length === 0) return
 
     const el = svgRef.current
-    const W = el.clientWidth || 800
-    const H = el.clientHeight || 500
+    const W  = el.clientWidth || 800
+    const H  = el.clientHeight || 500
 
     d3.select(el).selectAll('*').remove()
 
     const svg = d3.select(el)
     const g   = svg.append('g')
 
-    // Zoom
     svg.call(d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.2, 4])
       .on('zoom', e => g.attr('transform', e.transform))
@@ -109,7 +102,6 @@ export default function KnowledgeMapClient() {
       .force('center', d3.forceCenter(W / 2, H / 2))
       .force('collision', d3.forceCollide().radius((d: any) => d.size + 4))
 
-    // Links
     const link = g.append('g')
       .selectAll('line')
       .data(links)
@@ -118,17 +110,17 @@ export default function KnowledgeMapClient() {
       .attr('stroke-width', 1)
       .attr('stroke-opacity', 0.6)
 
-    // Nodes
+    const dragBehavior = d3.drag<SVGGElement, MapNode>()
+      .on('start', (e, d: any) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
+      .on('drag',  (e, d: any) => { d.fx = e.x; d.fy = e.y })
+      .on('end',   (e, d: any) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null })
+
     const node = g.append('g')
       .selectAll('g')
       .data(nodes)
       .join('g')
       .attr('cursor', 'pointer')
-      .call(d3.drag<SVGGElement, MapNode>()
-        .on('start', (e, d: any) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
-        .on('drag',  (e, d: any) => { d.fx = e.x; d.fy = e.y })
-        .on('end',   (e, d: any) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null })
-      )
+      .call(dragBehavior as any)
 
     node.append('circle')
       .attr('r',    (d: MapNode) => d.size ?? 8)
@@ -164,9 +156,10 @@ export default function KnowledgeMapClient() {
     try {
       const res  = await fetch('/api/documents?limit=20')
       const data = await res.json()
-      const docList = (data.data as Document[]).map((d: Document) => ({ title: d.title, author: d.author, year: d.year }))
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/ai/cluster`, {
+      const docList = (data.data as Document[]).map((d: Document) => ({
+        title: d.title, author: d.author, year: d.year
+      }))
+      const response = await fetch('/api/ai/cluster', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ documents: docList, label }),
@@ -182,21 +175,18 @@ export default function KnowledgeMapClient() {
 
   return (
     <div className="flex h-full overflow-hidden bg-white">
-
-      {/* ── Controls sidebar ─────────────────────────────────── */}
       <div className="w-56 flex-shrink-0 border-r border-slate-200 flex flex-col bg-white">
         <div className="p-3 border-b border-slate-100">
           <h1 className="text-sm font-semibold text-slate-900">Peta Ilmu</h1>
           <p className="text-xs text-slate-400">{filteredDocs.length} dokumen</p>
         </div>
 
-        {/* View toggle */}
         <div className="p-3 border-b border-slate-100">
           <p className="section-label mb-2">Pandangan</p>
           <div className="space-y-1">
             {[
-              { id: 'graph' as MapView,    label: 'Graf Hubungan',  Icon: Network },
-              { id: 'timeline' as MapView, label: 'Garis Masa',     Icon: Calendar },
+              { id: 'graph' as MapView,    label: 'Graf Hubungan', Icon: Network },
+              { id: 'timeline' as MapView, label: 'Garis Masa',    Icon: Calendar },
             ].map(({ id, label, Icon }) => (
               <button key={id} onClick={() => setView(id)} className={clsx('sb-item', view === id && 'active')}>
                 <Icon size={13} /> {label}
@@ -205,28 +195,20 @@ export default function KnowledgeMapClient() {
           </div>
         </div>
 
-        {/* Search */}
         <div className="p-3 border-b border-slate-100">
           <p className="section-label mb-2">Cari Entiti</p>
           <div className="relative">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Nama, topik..."
-              className="input pl-7 text-xs"
-            />
+            <input type="text" value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Nama, topik..." className="input pl-7 text-xs" />
           </div>
         </div>
 
-        {/* Tag filter */}
         <div className="flex-1 overflow-y-auto p-3">
           <p className="section-label mb-2">Filter Tag</p>
           <div className="flex flex-wrap gap-1">
             {allTags.map(tag => (
-              <button
-                key={tag}
+              <button key={tag}
                 onClick={() => setSelTags(s => s.includes(tag) ? s.filter(t => t !== tag) : [...s, tag])}
                 className={clsx(
                   'text-xs px-2 py-0.5 rounded-md border transition-colors',
@@ -234,29 +216,20 @@ export default function KnowledgeMapClient() {
                     ? 'bg-iris-100 text-iris-700 border-iris-300'
                     : 'bg-white text-slate-600 border-slate-200 hover:border-iris-200'
                 )}
-              >
-                {tag}
-              </button>
+              >{tag}</button>
             ))}
           </div>
         </div>
 
-        {/* AI Summary */}
         <div className="p-3 border-t border-slate-100">
-          <button
-            onClick={handleAISummary}
-            disabled={aiLoading || filteredDocs.length === 0}
-            className="btn-primary w-full justify-center text-xs py-2"
-          >
+          <button onClick={handleAISummary} disabled={aiLoading || filteredDocs.length === 0}
+            className="btn-primary w-full justify-center text-xs py-2">
             {aiLoading ? <><RefreshCw size={11} className="animate-spin" />Menganalisis...</> : <><Sparkles size={11} />Rumus dengan AI</>}
           </button>
         </div>
       </div>
 
-      {/* ── Main viz area ─────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-
-        {/* AI Panel */}
         {aiText && (
           <div className="absolute top-0 left-0 right-0 z-20 bg-iris-50 border-b border-iris-200 p-4 shadow-md">
             <div className="flex items-center justify-between mb-2">
@@ -271,7 +244,6 @@ export default function KnowledgeMapClient() {
           </div>
         )}
 
-        {/* Node legend */}
         <div className="absolute top-3 right-3 z-10 bg-white border border-slate-200 rounded-xl p-3 shadow-card">
           <p className="text-xs font-semibold text-slate-500 mb-2">Petunjuk</p>
           {Object.entries(NODE_COLORS).map(([type, color]) => (
