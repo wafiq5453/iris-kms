@@ -9,15 +9,15 @@ import clsx from 'clsx'
 import type { UploadFile, ExtractedMetadata, DocumentType, DocumentLang } from '@/types'
 import { DOC_TYPE_CONFIG } from '@/types'
 
-// Client-side Supabase (untuk upload direct — bypass Vercel 4.5MB limit)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 const ACCEPTED = '.pdf,.docx,.pptx,.xlsx,.doc,.txt'
-const MAX_SIZE  = 50 * 1024 * 1024 // 50MB
+const MAX_SIZE  = 50 * 1024 * 1024
 const BUCKET    = 'documents'
+const VERCEL_LIMIT = 4 * 1024 * 1024 // 4MB
 
 function getStoragePath(filename: string): string {
   const date  = new Date()
@@ -61,7 +61,7 @@ export default function UploadClient() {
     updateFile(idx, { step: 'uploading', progress: 10 })
 
     try {
-      // Step 1: Upload direct ke Supabase Storage dari browser (bypass Vercel limit)
+      // Step 1: Upload terus ke Supabase Storage
       const storagePath = getStoragePath(item.file.name)
       const { data: storageData, error: storageError } = await supabase.storage
         .from(BUCKET)
@@ -71,48 +71,48 @@ export default function UploadClient() {
 
       updateFile(idx, { progress: 50, storagePath })
 
-      // Step 2: Get public URL
       const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storageData.path)
       const publicUrl = urlData.publicUrl
 
       updateFile(idx, { progress: 70, publicUrl, step: 'extracting' })
 
-      // Step 3: Hantar file path ke API untuk AI extraction
-      // Hantar fail kecil sebagai base64, fail besar skip extraction
       let metadata: ExtractedMetadata
-      if (item.file.size <= 4 * 1024 * 1024) {
-        // Fail < 4MB — hantar ke API untuk Gemini extraction
+
+      if (item.file.size <= VERCEL_LIMIT) {
+        // Fail kecil — hantar ke Gemini melalui Vercel API
         const formData = new FormData()
         formData.append('file', item.file)
         formData.append('file_path', storagePath)
         formData.append('file_url', publicUrl)
-
         const res  = await fetch('/api/upload', { method: 'POST', body: formData })
         const data = await res.json()
-
         if (!res.ok) throw new Error(data.error || 'Extraction gagal')
         metadata = data.metadata
       } else {
-        // Fail > 4MB — isi metadata manual (Vercel limit)
-        metadata = {
-          title:     item.file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
-          author:    '',
-          year:      new Date().getFullYear(),
-          type:      'report' as DocumentType,
-          lang:      'BM' as DocumentLang,
-          source:    'IRIS Institute',
-          summary:   '',
-          tags:      [],
-          keywords:  [],
-          entities:  { people: [], organizations: [], countries: [], topics: [] },
-        }
+        // Fail besar — hantar ke Apps Script melalui /api/extract-url
+        updateFile(idx, { progress: 75 })
+        const res = await fetch('/api/extract-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileUrl:  publicUrl,
+            fileName: item.file.name,
+            mimeType: item.file.type || 'application/pdf',
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Apps Script extraction gagal')
+        metadata = data.metadata
       }
 
       updateFile(idx, { step: 'preview', progress: 100, metadata, publicUrl, storagePath })
       setActivePreview(idx)
 
     } catch (err: unknown) {
-      updateFile(idx, { step: 'drop', progress: 0, error: err instanceof Error ? err.message : 'Ralat' })
+      updateFile(idx, {
+        step: 'drop', progress: 0,
+        error: err instanceof Error ? err.message : 'Ralat tidak diketahui'
+      })
     }
   }
 
@@ -135,28 +135,24 @@ export default function UploadClient() {
           access_level: 'public',
         }),
       })
-
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Gagal simpan')
       }
-
       updateFile(idx, { step: 'done', progress: 100 })
     } catch (err: unknown) {
       updateFile(idx, { step: 'preview', error: err instanceof Error ? err.message : 'Ralat' })
     }
   }
 
-  const previewFiles = files.filter(f => f.step === 'preview' || f.step === 'saving' || f.step === 'done')
-
   return (
     <div className="flex flex-col lg:flex-row h-full overflow-hidden">
 
-      {/* Left: Drop + Queue */}
-      <div className="w-full lg:w-80 flex-shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col max-h-72 lg:max-h-full">
+      {/* Left panel */}
+      <div className="w-full lg:w-80 flex-shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col">
         <div className="p-4 border-b border-slate-100 flex-shrink-0">
           <h1 className="text-base font-semibold text-slate-900">Upload Dokumen</h1>
-          <p className="text-xs text-slate-500 mt-0.5">AI extract metadata — fail &lt;4MB automatik, lebih besar isi manual</p>
+          <p className="text-xs text-slate-500 mt-0.5">AI akan mengekstrak metadata secara automatik</p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -184,15 +180,20 @@ export default function UploadClient() {
                   <div className="flex-1 min-w-0">
                     <p className="text-slate-800 font-medium truncate">{item.file.name}</p>
                     <p className="text-slate-400">{(item.file.size / 1024 / 1024).toFixed(1)} MB
-                      {item.file.size > 4 * 1024 * 1024 && <span className="text-amber-500 ml-1">· isi manual</span>}
+                      {item.file.size > VERCEL_LIMIT && <span className="text-iris-500 ml-1">· via Apps Script</span>}
                     </p>
                     {item.error && <p className="text-red-500 mt-0.5 text-[10px] leading-tight">{item.error}</p>}
                     {(item.step === 'uploading' || item.step === 'extracting') && (
-                      <div className="mt-1 h-1 bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-iris-500 rounded-full transition-all" style={{ width: `${item.progress}%` }} />
-                      </div>
+                      <>
+                        <div className="mt-1 h-1 bg-slate-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-iris-500 rounded-full transition-all" style={{ width: `${item.progress}%` }} />
+                        </div>
+                        <p className="text-iris-600 mt-0.5 flex items-center gap-1">
+                          <Sparkles size={10} />
+                          {item.step === 'uploading' ? 'Menghantar ke storage...' : 'AI mengekstrak metadata...'}
+                        </p>
+                      </>
                     )}
-                    {item.step === 'extracting' && <p className="text-iris-600 mt-0.5 flex items-center gap-1"><Sparkles size={10} /> AI mengekstrak...</p>}
                   </div>
                   <div className="flex items-center gap-1">
                     {item.step === 'drop' && (
@@ -216,12 +217,12 @@ export default function UploadClient() {
         </div>
       </div>
 
-      {/* Right: Metadata preview */}
+      {/* Right: metadata preview */}
       <div className="flex-1 overflow-y-auto bg-slate-50 p-4">
-        {previewFiles.length === 0 ? (
+        {files.filter(f => f.step === 'preview' || f.step === 'saving' || f.step === 'done').length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 py-10">
             <Sparkles size={32} strokeWidth={1} className="mb-3 text-iris-200" />
-            <p className="text-sm text-slate-500 font-medium">Pratonton metadata</p>
+            <p className="text-sm text-slate-500 font-medium">Pratonton metadata AI</p>
             <p className="text-xs text-slate-400 mt-1">Upload fail dan tekan "Proses"</p>
           </div>
         ) : (
@@ -249,9 +250,8 @@ function MetadataForm({ item, onUpdate, onSave }: {
   const m = item.metadata
   if (!m) return null
   const disabled = item.step === 'done' || item.step === 'saving'
-  const isLarge = item.file.size > 4 * 1024 * 1024
   const DOC_TYPES: DocumentType[] = ['book','journal','report','manuscript','policy','article','slide','dataset','bulletin','working-paper','strategic-report']
-  const LANGS: DocumentLang[] = ['BM','EN','AR','ZH','Other']
+  const LANGS: DocumentLang[]     = ['BM','EN','AR','ZH','Other']
 
   return (
     <div className={clsx('bg-white rounded-xl border shadow-card', item.step === 'done' && 'border-emerald-300')}>
@@ -265,11 +265,9 @@ function MetadataForm({ item, onUpdate, onSave }: {
         {item.step === 'saving' && <span className="flex items-center gap-1 text-xs text-iris-600"><RefreshCw size={11} className="animate-spin" /> Menyimpan...</span>}
       </div>
 
-      <div className={clsx('px-4 py-2 border-b flex items-center gap-2', isLarge ? 'bg-amber-50 border-amber-100' : 'bg-iris-50 border-iris-100')}>
-        <Sparkles size={12} className={isLarge ? 'text-amber-600' : 'text-iris-600'} />
-        <span className={clsx('text-xs font-medium', isLarge ? 'text-amber-700' : 'text-iris-700')}>
-          {isLarge ? 'Fail besar — sila isi metadata secara manual' : 'Metadata diekstrak oleh Gemini AI — semak dan pinda jika perlu'}
-        </span>
+      <div className="px-4 py-2 bg-iris-50 border-b border-iris-100 flex items-center gap-2">
+        <Sparkles size={12} className="text-iris-600" />
+        <span className="text-xs text-iris-700 font-medium">Metadata diekstrak oleh AI — semak dan pinda jika perlu</span>
       </div>
 
       <div className="p-4 space-y-3">
@@ -315,7 +313,7 @@ function MetadataForm({ item, onUpdate, onSave }: {
           <textarea className="input min-h-[80px]" value={m.summary} onChange={e => onUpdate({ summary: e.target.value })} disabled={disabled} />
         </div>
         <div className="bg-slate-50 rounded-xl p-3 space-y-2">
-          <h4 className="text-xs font-semibold text-slate-600">Entiti</h4>
+          <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5"><Sparkles size={11} /> Entiti</h4>
           {(['people', 'organizations', 'countries', 'topics'] as const).map(type => (
             <div key={type}>
               <label className="text-xs text-slate-500 mb-1 block">
