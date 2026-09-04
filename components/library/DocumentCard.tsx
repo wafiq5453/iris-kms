@@ -1,5 +1,5 @@
 'use client'
-import { ExternalLink, FileText } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import clsx from 'clsx'
 import type { Document, DocumentType } from '@/types'
 import { DOC_TYPE_CONFIG } from '@/types'
@@ -14,6 +14,9 @@ interface Props {
 
 export default function DocumentCard({ doc, view, selected, onSelect }: Props) {
   const cfg = DOC_TYPE_CONFIG[doc.type as DocumentType] ?? { label: doc.type, icon: '📄', color: '#64748b', bg: '#f1f5f9' }
+  const tags     = doc.tags ?? []
+  const people   = doc.entities?.people ?? []
+  const countries = doc.entities?.countries ?? []
 
   if (view === 'list') {
     return (
@@ -34,10 +37,7 @@ export default function DocumentCard({ doc, view, selected, onSelect }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span
-            className="badge text-xs"
-            style={{ background: cfg.bg, color: cfg.color }}
-          >
+          <span className="badge text-xs" style={{ background: cfg.bg, color: cfg.color }}>
             {cfg.label}
           </span>
           {doc.lang && <span className="badge badge-slate text-xs">{doc.lang}</span>}
@@ -60,10 +60,7 @@ export default function DocumentCard({ doc, view, selected, onSelect }: Props) {
     >
       {/* Type badge */}
       <div className="flex items-center justify-between mb-3">
-        <span
-          className="badge text-xs"
-          style={{ background: cfg.bg, color: cfg.color }}
-        >
+        <span className="badge text-xs" style={{ background: cfg.bg, color: cfg.color }}>
           {cfg.icon} {cfg.label}
         </span>
         {doc.access_level === 'staff' && (
@@ -87,26 +84,26 @@ export default function DocumentCard({ doc, view, selected, onSelect }: Props) {
       </p>
 
       {/* Tags */}
-      {doc.tags.length > 0 && (
+      {tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
-          {doc.tags.slice(0, 3).map(tag => (
+          {tags.slice(0, 3).map(tag => (
             <span key={tag} className="tag text-[10px]">{tag}</span>
           ))}
-          {doc.tags.length > 3 && (
-            <span className="text-[10px] text-slate-400">+{doc.tags.length - 3}</span>
+          {tags.length > 3 && (
+            <span className="text-[10px] text-slate-400">+{tags.length - 3}</span>
           )}
         </div>
       )}
 
-      {/* Entity preview (key feature) */}
-      {(doc.entities?.people?.length > 0 || doc.entities?.countries?.length > 0) && (
+      {/* Entity preview */}
+      {(people.length > 0 || countries.length > 0) && (
         <div className="border-t border-slate-100 pt-2 mt-1">
-          {doc.entities.people?.slice(0, 2).map(p => (
+          {people.slice(0, 2).map(p => (
             <span key={p} className="inline-flex items-center gap-1 text-[10px] text-violet-700 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5 mr-1 mb-1">
               👤 {p}
             </span>
           ))}
-          {doc.entities.countries?.slice(0, 2).map(c => (
+          {countries.slice(0, 2).map(c => (
             <span key={c} className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 mr-1 mb-1">
               🌍 {c}
             </span>
