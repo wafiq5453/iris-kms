@@ -31,7 +31,7 @@ export default function LibraryClient({ isStaff }: Props) {
   const typeCounts = docs.reduce<Record<string, number>>((acc, d) => {
     acc[d.type] = (acc[d.type] ?? 0) + 1; return acc
   }, {})
-  const allTags = Array.from(new Set(docs.flatMap(d => d.tags))).slice(0, 30)
+  const allTags = Array.from(new Set(docs.flatMap(d => d.tags ?? []))).slice(0, 30)
   const years   = Array.from(new Set(docs.map(d => d.year).filter(Boolean))).sort((a, b) => b! - a!)
 
   const fetchDocs = useCallback(async (f: SearchFilters) => {
