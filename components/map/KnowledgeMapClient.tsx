@@ -25,13 +25,15 @@ export default function KnowledgeMapClient() {
   const [aiLoading, setAiLoading] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
 
-  const allTags = Array.from(new Set(docs.flatMap(d => d.tags))).sort()
+  // Fix: handle null tags
+  const allTags = Array.from(new Set(docs.flatMap(d => d.tags ?? []))).sort()
 
   const filteredDocs = docs.filter(d => {
+    const tags = d.tags ?? []
     const matchQ = !query || d.title.toLowerCase().includes(query.toLowerCase())
       || d.entities?.people?.some(p => p.toLowerCase().includes(query.toLowerCase()))
       || d.entities?.topics?.some(t => t.toLowerCase().includes(query.toLowerCase()))
-    const matchT = selTags.length === 0 || selTags.every(t => d.tags.includes(t))
+    const matchT = selTags.length === 0 || selTags.every(t => tags.includes(t))
     return matchQ && matchT
   })
 
@@ -55,18 +57,25 @@ export default function KnowledgeMapClient() {
     }
 
     filteredDocs.forEach(doc => {
+      const tags     = doc.tags ?? []
+      const people   = doc.entities?.people ?? []
+      const countries = doc.entities?.countries ?? []
+
       addNode(`doc:${doc.id}`, doc.title.slice(0, 40), 'document', 8)
-      doc.tags.forEach(tag => {
+
+      tags.forEach(tag => {
         const tagId = `tag:${tag}`
         addNode(tagId, tag, 'topic', 14)
         links.push({ source: tagId, target: `doc:${doc.id}` })
       })
-      doc.entities?.people?.slice(0, 5).forEach(p => {
+
+      people.slice(0, 5).forEach(p => {
         const pid = `person:${p}`
         addNode(pid, p, 'person', 10)
         links.push({ source: pid, target: `doc:${doc.id}`, strength: 0.5 })
       })
-      doc.entities?.countries?.slice(0, 3).forEach(c => {
+
+      countries.slice(0, 3).forEach(c => {
         const cid = `country:${c}`
         addNode(cid, c, 'country', 12)
         links.push({ source: cid, target: `doc:${doc.id}`, strength: 0.4 })
@@ -224,7 +233,9 @@ export default function KnowledgeMapClient() {
         <div className="p-3 border-t border-slate-100">
           <button onClick={handleAISummary} disabled={aiLoading || filteredDocs.length === 0}
             className="btn-primary w-full justify-center text-xs py-2">
-            {aiLoading ? <><RefreshCw size={11} className="animate-spin" />Menganalisis...</> : <><Sparkles size={11} />Rumus dengan AI</>}
+            {aiLoading
+              ? <><RefreshCw size={11} className="animate-spin" />Menganalisis...</>
+              : <><Sparkles size={11} />Rumus dengan AI</>}
           </button>
         </div>
       </div>
@@ -249,7 +260,11 @@ export default function KnowledgeMapClient() {
           {Object.entries(NODE_COLORS).map(([type, color]) => (
             <div key={type} className="flex items-center gap-2 text-xs text-slate-600 mb-1">
               <div className="w-3 h-3 rounded-full" style={{ background: color }} />
-              {type === 'topic' ? 'Tag/Topik' : type === 'document' ? 'Dokumen' : type === 'person' ? 'Individu' : type === 'organization' ? 'Organisasi' : 'Negara'}
+              {type === 'topic' ? 'Tag/Topik'
+                : type === 'document' ? 'Dokumen'
+                : type === 'person' ? 'Individu'
+                : type === 'organization' ? 'Organisasi'
+                : 'Negara'}
             </div>
           ))}
         </div>
@@ -286,13 +301,18 @@ function TimelineView({ docs }: { docs: Document[] }) {
             <span className="text-xs text-slate-400">{byYear[year].length} dokumen</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {byYear[year].map(doc => (
-              <div key={doc.id} className="p-3 bg-white border border-slate-200 rounded-xl text-sm hover:border-iris-300 transition-colors">
-                <p className="font-medium text-slate-900 line-clamp-2 mb-1">{doc.title}</p>
-                {doc.author && <p className="text-xs text-slate-500">{doc.author}</p>}
-                {doc.tags.slice(0, 2).map(t => <span key={t} className="tag text-xs mr-1 mt-1 inline-block">{t}</span>)}
-              </div>
-            ))}
+            {byYear[year].map(doc => {
+              const tags = doc.tags ?? []
+              return (
+                <div key={doc.id} className="p-3 bg-white border border-slate-200 rounded-xl text-sm hover:border-iris-300 transition-colors">
+                  <p className="font-medium text-slate-900 line-clamp-2 mb-1">{doc.title}</p>
+                  {doc.author && <p className="text-xs text-slate-500">{doc.author}</p>}
+                  {tags.slice(0, 2).map(t => (
+                    <span key={t} className="tag text-xs mr-1 mt-1 inline-block">{t}</span>
+                  ))}
+                </div>
+              )
+            })}
           </div>
         </div>
       ))}

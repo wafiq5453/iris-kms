@@ -42,7 +42,7 @@ export default function LibraryClient({ isStaff }: Props) {
       if (f.type && f.type !== 'all') params.set('type', f.type)
       if (f.year)  params.set('year', String(f.year))
       if (f.tags?.length) f.tags.forEach(t => params.append('tag', t))
-      params.set('limit', '100')
+      params.set('limit', '500')
       const res  = await fetch(`/api/documents?${params}`)
       const data = await res.json()
       setDocs(data.data ?? [])
